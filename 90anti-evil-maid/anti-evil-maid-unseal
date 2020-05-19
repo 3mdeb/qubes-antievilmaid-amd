@@ -62,13 +62,12 @@ mount -t ext4 -o ro "$DEV" "$MNT"
 # setup TPM & copy secrets to initrd tmpfs
 
 log "Initializing TPM..."
-modprobe tpm_tis
+modprobe tpm_tis tpm_crb
 ip link set dev lo up
 mkdir -p "${TPMS_DIR%/*}"
 log "Copying sealed AEM secrets..."
 cp -Tr "$MNT/aem/${TPMS_DIR##*/}" "${TPMS_DIR}"
-tcsd_changer_identify
-tcsd
+tpm2-abrmd
 
 SEALED_SECRET_TXT=$TPM_DIR/$LABEL/secret.txt.sealed2
 SEALED_SECRET_KEY=$TPM_DIR/$LABEL/secret.key.sealed2
@@ -97,7 +96,7 @@ while read luksid; do
                --header-backup-file "$LUKS_HEADER_DUMP"
     luks_header_hash=$(sha1sum "$LUKS_HEADER_DUMP" | cut -f 1 -d ' ')
     log "Extending PCR $LUKS_PCR, value $luks_header_hash, device $luksid..."
-    tpm_pcr_extend "$LUKS_PCR" "$luks_header_hash"
+    tpm2_pcrextend "$LUKS_PCR:sha=$luks_header_hash"
 done
 
 
@@ -130,7 +129,8 @@ fi
 # check freshness token
 
 log "Unsealing freshness token..."
-if tpm_unsealdata $Z -i "$SEALED_SECRET_FRE" -o "$UNSEALED_SECRET" \
+if tpm_unsealdata -c "$SEALED_SECRET_FRE" \
+        -p pcr:sha256:$LUKS_PCR,17,18 -o "$UNSEALED_SECRET" \
         < "$SRK_PASSWORD_CACHE"; then
     log "Freshness token unsealed."
     >"$CACHE_DIR/unseal-success"

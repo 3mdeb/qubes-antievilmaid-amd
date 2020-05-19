@@ -103,9 +103,8 @@ createtpmnvram() {
 
     _pw=$(cat "$TPM_FRESHNESS_PASSWORD_FILE")
 
-    if ! tpm_nvdefine -i "$TPM_FRESHNESS_INDEX" \
-            -s $((TPM_FRESHNESS_SLOTS * 20)) \
-            -p AUTHWRITE --pwda="$_pw" --pwdo="$1"; then
+    if ! tpm2_nvdefine  -s $((TPM_FRESHNESS_SLOTS * 20)) \
+            -a AUTHWRITE -p "$_pw" "$TPM_FRESHNESS_INDEX"; then
         return 1
     fi
 }
