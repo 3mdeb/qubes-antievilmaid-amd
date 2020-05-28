@@ -117,37 +117,34 @@ linux_entry ()
     prepare_boot_cache="$(prepare_grub_to_access_device ${GRUB_DEVICE_BOOT} | grub_add_tab)"
   fi
   printf '%s\n' "${prepare_boot_cache}" | sed "s/^/$submenu_indentation/"
-  tmessage="$(gettext_printf "Loading tboot ...")"
   xmessage="$(gettext_printf "Loading Xen %s ..." ${xen_version})"
   lmessage="$(gettext_printf "Loading Linux %s ..." ${version})"
   sed "s/^/$submenu_indentation/" << EOF
-	echo	'$(echo "$tmessage" | grub_quote)'
-	multiboot	/tboot.gz placeholder logging=memory,serial ${GRUB_CMDLINE_TBOOT}
 	echo	'$(echo "$xmessage" | grub_quote)'
         if [ "\$grub_platform" = "pc" -o "\$grub_platform" = "" ]; then
             xen_rm_opts=
         else
             xen_rm_opts="no-real-mode edd=off"
         fi
-	module	${rel_xen_dirname}/${xen_basename} placeholder ${xen_args} \${xen_rm_opts}
+	multiboot2	${rel_xen_dirname}/${xen_basename} placeholder ${xen_args} \${xen_rm_opts}
 	echo	'$(echo "$lmessage" | grub_quote)'
-	module	${rel_dirname}/${basename} placeholder root=${linux_root_device_thisversion} ro ${args} aem.uuid=${GRUB_DEVICE_BOOT_UUID} rd.luks.key=/tmp/aem-keyfile rd.luks.crypttab=no
+	module2	${rel_dirname}/${basename} placeholder root=${linux_root_device_thisversion} ro ${args} aem.uuid=${GRUB_DEVICE_BOOT_UUID} rd.luks.key=/tmp/aem-keyfile rd.luks.crypttab=no
 EOF
   if test -n "${initrd}" ; then
     # TRANSLATORS: ramdisk isn't identifier. Should be translated.
     message="$(gettext_printf "Loading initial ramdisk ...")"
     sed "s/^/$submenu_indentation/" << EOF
 	echo	'$(echo "$message" | grub_quote)'
-	module	${rel_dirname}/${initrd}
+	module2	${rel_dirname}/${initrd}
 EOF
   fi
-  if test -n "${sinit_module_list}" ; then
-    for i in ${sinit_module_list} ; do
-      sinit_module=`basename $i`
-      message="$(gettext_printf "Loading SINIT module %s ..." ${sinit_module})"
+  if test -n "${skinit_module_list}" ; then
+    for i in ${skinit_module_list} ; do
+      skinit_module=`basename $i`
+      message="$(gettext_printf "Loading SKINIT module %s ..." ${skinit_module})"
       sed "s/^/$submenu_indentation/" << EOF
 	echo	'$message'
-	module	/${sinit_module}
+	module2	/${sinit_module}
 EOF
     done
   fi
@@ -188,7 +185,7 @@ xen_list=`for i in /boot/xen*; do
         if grub_file_is_not_garbage "$i" && file_is_not_sym "$i" ; then echo -n "$i " ; fi
       done`
 
-sinit_module_list=`for i in /boot/*SINIT*.BIN; do
+skinit_module_list=`for i in /boot/lz*; do
   if grub_file_is_not_garbage "$i"; then
     echo "$i"
   fi

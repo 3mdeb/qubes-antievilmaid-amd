@@ -8,7 +8,7 @@ shopt -s expand_aliases
 # Putting the systemctl command in ExecStartPre= is also insufficient: The
 # user might want to run this script manually after changing the secret(s).
 
-systemctl start tcsd
+systemctl start tpm2-abrmd
 
 alias plymouth_message="plymouth message --text"
 source anti-evil-maid-lib
@@ -48,10 +48,10 @@ esac
 
 # ensure that all standard PCRs configured to be used have been extended
 
-pcrs=$(printf %s "$SEAL" | grep -Eo '\b1[3789]\b') || true
+tpm2_pcrread -o /tmp/pcrs sha256:13,17,18
+pcrs=$(cat /tpm/pcrs |tr -d '\000' |tr -d '\377')
 
-if grep -E "^PCR-(${pcrs//$'\n'/|}):( 00| FF){20}" "$SYSFS_TPM_DIR"/pcrs;
-   [ $? != 1 ]; then
+if [ -z "$pcrs" ]; then
     message "PCR sanity check failed!"
     message "See /usr/share/doc/anti-evil-maid/README for details."
     exit 1
@@ -60,9 +60,12 @@ fi
 
 # regenerate the freshness token and store it's hash in TPM
 
-head -c 20 /dev/random > "$AEM_DIR/$LABEL/secret.fre"
+head -c 32 /dev/random > "$AEM_DIR/$LABEL/secret.fre"
 updatefreshness "$AEM_DIR/$LABEL/secret.fre" "$LABEL_SUFFIX"
 
+
+tpm2_createprimary -Q --hierarchy=o --key-context=$AEM_DIR/$LABEL/prim.ctx \
+    -P file:"$TPM_OWNER_PASSWORD_FILE"
 
 # seal and save secret(s) to root partition
 

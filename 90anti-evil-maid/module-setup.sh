@@ -1,7 +1,7 @@
 #!/bin/bash
 
 check() {
-    which tpm_unsealdata  >/dev/null 2>&1 || return 1
+    which tpm2_unseal  >/dev/null 2>&1 || return 1
 }
 
 
@@ -10,7 +10,7 @@ check() {
 
 
 installkernel() {
-    instmods tpm_tis
+    instmods tpm_tis tpm_crb
 }
 
 install() {
@@ -46,12 +46,11 @@ install() {
         tcsd_changer_identify \
         tee \
         tpm_id \
-        tpm_nvinfo \
-        tpm_nvread \
-        tpm_nvread_stdout \
-        tpm_pcr_extend \
-        tpm_sealdata \
-        tpm_unsealdata \
+        tpm2_nvdefine \
+        tpm2_nvread \
+        tpm2_pcrextend \
+        tpm2_create \
+        tpm2_unseal \
         tpm_z_srk \
         tr \
         uniq \

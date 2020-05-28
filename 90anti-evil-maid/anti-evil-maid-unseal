@@ -67,7 +67,7 @@ ip link set dev lo up
 mkdir -p "${TPMS_DIR%/*}"
 log "Copying sealed AEM secrets..."
 cp -Tr "$MNT/aem/${TPMS_DIR##*/}" "${TPMS_DIR}"
-tpm2-abrmd
+systemctl start tpm2-abrmd
 
 SEALED_SECRET_TXT=$TPM_DIR/$LABEL/secret.txt.sealed2
 SEALED_SECRET_KEY=$TPM_DIR/$LABEL/secret.key.sealed2
@@ -129,9 +129,8 @@ fi
 # check freshness token
 
 log "Unsealing freshness token..."
-if tpm_unsealdata -c "$SEALED_SECRET_FRE" \
-        -p pcr:sha256:$LUKS_PCR,17,18 -o "$UNSEALED_SECRET" \
-        < "$SRK_PASSWORD_CACHE"; then
+if tpm2_unseal --object-context="$SEALED_SECRET_FRE" \
+        -p pcr:sha256:$LUKS_PCR,17,18 -o "$UNSEALED_SECRET"; then
     log "Freshness token unsealed."
     >"$CACHE_DIR/unseal-success"
 else
@@ -161,8 +160,8 @@ fi
 
 if otp; then
     log "Unsealing TOTP shared secret seed..."
-    if tpm_unsealdata $Z -i "$SEALED_SECRET_OTP" -o "$UNSEALED_SECRET" \
-            < "$SRK_PASSWORD_CACHE"; then
+    if tpm2_unseal --object-context="$SEALED_SECRET_OTP"\
+        -o "$UNSEALED_SECRET"; then
         log "TOTP secret unsealed."
 
         message ""
@@ -186,8 +185,8 @@ if otp; then
         } &
         totp_loop_pid=$!
 
-        if tpm_unsealdata $Z -i "$SEALED_SECRET_KEY" -o "$UNSEALED_SECRET" \
-           <"$SRK_PASSWORD_CACHE"; then
+        if tpm2_unseal --object-context="$SEALED_SECRET_KEY" \
+            -o "$UNSEALED_SECRET"; then
             for try in 1 2 3; do
                 pass=$(systemd-ask-password --timeout=0 \
                        'LUKS key file password (or "t" to show text secret)')
@@ -221,8 +220,8 @@ fi
 
 if ! otp; then
     log "Unsealing text secret..."
-    if tpm_unsealdata $Z -i "$SEALED_SECRET_TXT" -o "$UNSEALED_SECRET" \
-        <"$SRK_PASSWORD_CACHE"; then
+    if tpm2_unseal --object-context="$SEALED_SECRET_TXT" \
+            -o "$UNSEALED_SECRET"; then
         {
             message ""
             message "$(cat "$UNSEALED_SECRET" 2>/dev/null)"

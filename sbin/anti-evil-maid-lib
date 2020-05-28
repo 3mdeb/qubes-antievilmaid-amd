@@ -8,7 +8,7 @@ SRK_PASSWORD_CACHE=$CACHE_DIR/srk-password
 SUFFIX_CACHE=$CACHE_DIR/suffix
 TPM_OWNER_PASSWORD_FILE=$AEM_DIR/tpm-owner-pw
 TPM_FRESHNESS_PASSWORD_FILE=$AEM_DIR/tpm-freshness-pw
-TPM_FRESHNESS_INDEX="0x454d"
+TPM_FRESHNESS_INDEX="0x180454d"
 TPM_FRESHNESS_SLOTS=8
 
 
@@ -83,11 +83,22 @@ waitforenter() {
     fi
 }
 
+tpm_z_srk() {
+    log "detecting whether SRK is nto an empty password"
+
+    if tpm2_changeauth --quiet -c owner 2>/dev/null; then
+        log "SRK isn't an empty password"
+        echo -z
+    else
+        log "SRK is an empty password"
+    fi
+}
+
 checktpmnvram() {
     # checks whether the TPM NVRAM area is defined
-    # NOTE: tpm_nvinfo does not return non-zero if requested index
-    # is not a defined NVRAM area so we need to parse
-    if ! tpm_nvinfo -i "$TPM_FRESHNESS_INDEX" | grep -q 'AUTHWRITE'; then
+    # NOTE: tpm2_nvreadpublic return all defined NV indices so we need to parse
+    if ! tpm2_readpublic | grep "$TPM_FRESHNESS_INDEX" -A 7 | \
+            grep -q 'authwrite'; then
         return 1
     fi
 }
@@ -102,9 +113,10 @@ createtpmnvram() {
     fi
 
     _pw=$(cat "$TPM_FRESHNESS_PASSWORD_FILE")
+    _opw=$(cat "$TPM_OWNER_PASSWORD_FILE")
 
-    if ! tpm2_nvdefine  -s $((TPM_FRESHNESS_SLOTS * 20)) \
-            -a AUTHWRITE -p "$_pw" "$TPM_FRESHNESS_INDEX"; then
+    if ! tpm2_nvdefine "$TPM_FRESHNESS_INDEX" -s $((TPM_FRESHNESS_SLOTS * 32)) \
+         -a "authwrite|authwrite" -p "$_pw" -P "$_opw"; then
         return 1
     fi
 }
@@ -147,11 +159,16 @@ assignslottosuffix() {
 checkfreshness() {
     # check whether hash of an usealed freshness token (file path
     # given as an argument) is contained in TPM NVRAM area
+    if [ ! -e "$TPM_FRESHNESS_PASSWORD_FILE" ]; then
+        message "TPM NVRAM area AUTHWRITE password file does not exist!"
+        return 1
+    fi
     _hash=$(sha1sum "$1" | cut -d ' ' -f 1)
     _lastslot=$((TPM_FRESHNESS_SLOTS - 1))
+    _pw=$(cat "$TPM_FRESHNESS_PASSWORD_FILE")
     for _i in $(seq 0 $_lastslot); do
-        _slot=$(tpm_nvread_stdout -i "$TPM_FRESHNESS_INDEX" \
-            -n "$((_i * 20))" -s 20 | hex)
+        _slot=$(tpm2_nvread "$TPM_FRESHNESS_INDEX" -p "$_pw" \
+            --offset="$((_i * 32))" -s 32 -o file:- | hex)
         if [ "$_hash" == "$_slot" ]; then
             return 0
         fi
@@ -162,7 +179,7 @@ checkfreshness() {
 
 updatefreshness() {
     # takes a path to the new freshness token as an argument and
-    # stores its sha1 hash in the appropriate freshness token slot
+    # stores its sha256 hash in the appropriate freshness token slot
     # of the TPM NVRAM area; second argument is the AEM boot device
     # label suffix
     if [ ! -e "$TPM_FRESHNESS_PASSWORD_FILE" ]; then
@@ -179,9 +196,9 @@ updatefreshness() {
     fi
 
     _pw=$(cat "$TPM_FRESHNESS_PASSWORD_FILE")
-    sha1sum "$1" | cut -d ' ' -f 1 | unhex \
-    | tpm_nvwrite_stdin -i "$TPM_FRESHNESS_INDEX" \
-      -n "$((_slot * 20))" -s 20 --password="$_pw"
+    sha256sum "$1" | cut -d ' ' -f 1 | unhex \
+        | tpm2_nvwrite "$TPM_FRESHNESS_INDEX" -i file:- \
+        --offset "$((_slot * 32))" -s 32 -p "$_pw"
 }
 
 revokefreshness() {
@@ -190,9 +207,9 @@ revokefreshness() {
     if _slot=$(suffixtoslot "$1"); then
         message "Revoking freshness token for AEM media w/ suffix '$_suff'..."
         _pw=$(cat "$TPM_FRESHNESS_PASSWORD_FILE")
-        if tpm_nvwrite -i "$TPM_FRESHNESS_INDEX" \
-                -n "$((_slot * 20))" -s 20 \
-                --password="$_pw" -m "0xff"; then
+        if tr '\0' '\377' < /dev/zero | dd bs=32 count=1 | \
+             tpm2_nvwrite "$TPM_FRESHNESS_INDEX" --offset "$((_slot * 32))" \
+             -s 32 -p "$_pw" -i file:- \  ; then
             message "Done."
         else
             message "Failed!"
@@ -206,9 +223,11 @@ resetfreshness() {
     # invalidates ALL freshness tokens
     message "Invalidating **ALL** freshness tokens..."
     _pw=$(cat "$TPM_FRESHNESS_PASSWORD_FILE")
-    if tpm_nvwrite -i "$TPM_FRESHNESS_INDEX" \
+    if tr '\0' '\377' < /dev/zero | \
+            dd bs="$((TPM_FRESHNESS_SLOTS * 20))" count=1 | \
+            tpm2_nvwrite "$TPM_FRESHNESS_INDEX" \
             -s "$((TPM_FRESHNESS_SLOTS * 20))" \
-            --password="$_pw" -m "0xff"; then
+            -p "$_pw" -i file:- \  ; then
         message "Done."
     else
         message "Failed!"
@@ -217,7 +236,7 @@ resetfreshness() {
 
 destroytpmnvram() {
     # releases the TPM NVRAM area; TPM owner pw as first argument
-    tpm_nvrelease -i "$TPM_FRESHNESS_INDEX" --pwdo="$1"
+    tpm2_nvundefine "$TPM_FRESHNESS_INDEX" -C owner -P "$1"
 }
 
 synctpms() {

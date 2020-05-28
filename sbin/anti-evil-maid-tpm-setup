@@ -15,7 +15,7 @@ if [ "$(id -ur)" != 0 ]; then
     exit 1
 fi
 
-if [ "$(cat "$SYSFS_TPM_DIR"/owned)" != 0 ]; then
+if [ "$(tpm2_changeauth -quiet -c o 2>/dev/null)" != 0 ]; then
     log "You must reset/clear your TPM chip first!"
     exit 1
 fi
@@ -44,7 +44,7 @@ systemctl restart tpm2-abrmd
 
 log "Taking ownership of the TPM..."
 printf '%s\n' "${lines[@]}" |
-notty env LC_ALL=C tpm2_changeauth -Q -c owner "$@" 2> >(grep -vF "Confirm password:" >&2)
+notty env LC_ALL=C tpm2_changeauth --quiet -c owner "$@" 2> >(grep -vF "Confirm password:" >&2)
 
 echo "$OWNERPW" >"$TPM_OWNER_PASSWORD_FILE"
 
